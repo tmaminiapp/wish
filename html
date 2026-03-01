@@ -1008,4 +1008,427 @@
                             { id: 'price', label: 'Прайс', icon: '<rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect>' },
                             { id: 'doctors', label: 'Врачи', icon: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle>' },
                             { id: 'booking', label: 'Записаться', icon: '<circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline>' },
-                            { id: 'profile', label: 'Профиль',
+                            { id: 'profile', label: 'Профиль', icon: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle>' }
+                        ]);
+                        
+                        // Календарь - вычисляемые свойства
+                        const currentMonthName = computed(() => {
+                            return currentDate.value.toLocaleString('ru-RU', { month: 'long' });
+                        });
+                        
+                        const currentYear = computed(() => {
+                            return currentDate.value.getFullYear();
+                        });
+                        
+                        const calendarDays = computed(() => {
+                            const year = currentDate.value.getFullYear();
+                            const month = currentDate.value.getMonth();
+                            
+                            const firstDay = new Date(year, month, 1);
+                            const lastDay = new Date(year, month + 1, 0);
+                            
+                            const days = [];
+                            
+                            // Пустые дни перед началом месяца
+                            for (let i = 0; i < (firstDay.getDay() || 7) - 1; i++) {
+                                days.push({ day: '', date: null, isToday: false, hasSlots: false });
+                            }
+                            
+                            // Дни месяца
+                            const today = new Date();
+                            for (let d = 1; d <= lastDay.getDate(); d++) {
+                                const date = new Date(year, month, d);
+                                const isToday = date.toDateString() === today.toDateString();
+                                const hasSlots = true; // Здесь проверка наличия свободных слотов
+                                
+                                days.push({
+                                    day: d,
+                                    date: date.toISOString().split('T')[0],
+                                    isToday,
+                                    hasSlots
+                                });
+                            }
+                            
+                            return days;
+                        });
+                        
+                        // Методы
+                        function handleImageError(e) {
+                            e.target.src = 'https://via.placeholder.com/100';
+                        }
+                        
+                        function prevMonth() {
+                            currentDate.value = new Date(currentDate.value.getFullYear(), currentDate.value.getMonth() - 1, 1);
+                        }
+                        
+                        function nextMonth() {
+                            currentDate.value = new Date(currentDate.value.getFullYear(), currentDate.value.getMonth() + 1, 1);
+                        }
+                        
+                        function selectDate(date) {
+                            selectedDate.value = date;
+                            selectedTime.value = null;
+                            // Загрузить доступные слоты для этой даты
+                            loadTimeSlots(date);
+                        }
+                        
+                        function loadTimeSlots(date) {
+                            // Здесь загрузка из Firebase
+                            timeSlots.value = [
+                                { time: '09:00', booked: false },
+                                { time: '10:00', booked: true },
+                                { time: '11:00', booked: false },
+                                { time: '12:00', booked: false },
+                                { time: '14:00', booked: false },
+                                { time: '15:00', booked: true },
+                                { time: '16:00', booked: false },
+                                { time: '17:00', booked: false }
+                            ];
+                        }
+                        
+                        function selectTime(time) {
+                            selectedTime.value = time;
+                        }
+                        
+                        function formatDate(dateStr) {
+                            const date = new Date(dateStr);
+                            return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+                        }
+                        
+                        async function bookAppointment() {
+                            if (!selectedDoctor.value || !selectedDate.value || !selectedTime.value) {
+                                alert('Выберите врача, дату и время');
+                                return;
+                            }
+                            
+                            // Здесь отправка в Firebase
+                            const appointment = {
+                                userId: user.value.id,
+                                doctorId: selectedDoctor.value,
+                                doctorName: doctors.value.find(d => d.id === selectedDoctor.value)?.name,
+                                date: selectedDate.value,
+                                time: selectedTime.value,
+                                status: 'pending',
+                                createdAt: new Date()
+                            };
+                            
+                            console.log('Запись:', appointment);
+                            alert('Запись успешно создана!');
+                            
+                            // Отправка уведомления врачу в Telegram
+                            if (BOT_TOKEN) {
+                                const doctor = doctors.value.find(d => d.id === selectedDoctor.value);
+                                if (doctor?.telegramId) {
+                                    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            chat_id: doctor.telegramId,
+                                            text: `🦷 Новая запись!\n\nПациент: ${user.value.first_name}\nДата: ${selectedDate.value}\nВремя: ${selectedTime.value}`,
+                                            parse_mode: 'HTML'
+                                        })
+                                    });
+                                }
+                            }
+                        }
+                        
+                        function cancelAppointment(apt) {
+                            if (confirm('Отменить запись?')) {
+                                // Удаление из Firebase
+                                console.log('Отмена:', apt);
+                            }
+                        }
+                        
+                        function rescheduleAppointment(apt) {
+                            tab.value = 'booking';
+                            selectedDate.value = apt.date;
+                            selectedDoctor.value = apt.doctorId;
+                        }
+                        
+                        // Админка
+                        function addCategory() {
+                            priceCategories.value.push({
+                                id: Date.now(),
+                                name: 'Новая категория',
+                                services: []
+                            });
+                        }
+                        
+                        function deleteCategory(index) {
+                            priceCategories.value.splice(index, 1);
+                        }
+                        
+                        function addService(categoryIndex) {
+                            priceCategories.value[categoryIndex].services.push({
+                                id: Date.now(),
+                                name: 'Новая услуга',
+                                price: 0
+                            });
+                        }
+                        
+                        function deleteService(categoryIndex, serviceIndex) {
+                            priceCategories.value[categoryIndex].services.splice(serviceIndex, 1);
+                        }
+                        
+                        function savePriceList() {
+                            console.log('Сохранение прайса:', priceCategories.value);
+                            alert('Прайс сохранен');
+                        }
+                        
+                        function addDoctor() {
+                            editingDoctor.value = -1;
+                            doctorForm.value = {
+                                name: '',
+                                position: '',
+                                education: '',
+                                experience: '',
+                                photo: ''
+                            };
+                        }
+                        
+                        function editDoctor(index) {
+                            editingDoctor.value = index;
+                            doctorForm.value = { ...doctors.value[index] };
+                        }
+                        
+                        function deleteDoctor(index) {
+                            if (confirm('Удалить врача?')) {
+                                doctors.value.splice(index, 1);
+                            }
+                        }
+                        
+                        function saveDoctor() {
+                            if (editingDoctor.value === -1) {
+                                doctors.value.push({
+                                    id: Date.now(),
+                                    ...doctorForm.value
+                                });
+                            } else {
+                                Object.assign(doctors.value[editingDoctor.value], doctorForm.value);
+                            }
+                            editingDoctor.value = null;
+                        }
+                        
+                        function handleDoctorPhoto(e) {
+                            const file = e.target.files[0];
+                            if (file) {
+                                // Здесь загрузка на ImgBB
+                                const reader = new FileReader();
+                                reader.onload = (e) => {
+                                    doctorForm.value.photo = e.target.result;
+                                };
+                                reader.readAsDataURL(file);
+                            }
+                        }
+                        
+                        // Загрузка данных из Firebase
+                        function loadDoctors() {
+                            // Пример данных
+                            doctors.value = [
+                                {
+                                    id: 1,
+                                    name: 'Иванова Анна Петровна',
+                                    position: 'Стоматолог-терапевт',
+                                    education: 'МГМУ им. Сеченова, 2010',
+                                    experience: 12,
+                                    photo: 'https://via.placeholder.com/100',
+                                    telegramId: 123456789
+                                },
+                                {
+                                    id: 2,
+                                    name: 'Петров Сергей Иванович',
+                                    position: 'Стоматолог-хирург',
+                                    education: 'РУДН, 2012',
+                                    experience: 10,
+                                    photo: 'https://via.placeholder.com/100',
+                                    telegramId: 987654321
+                                }
+                            ];
+                        }
+                        
+                        function loadPriceList() {
+                            priceCategories.value = [
+                                {
+                                    id: 1,
+                                    name: 'Терапия',
+                                    services: [
+                                        { id: 1, name: 'Лечение кариеса', price: 5000 },
+                                        { id: 2, name: 'Лечение пульпита', price: 8000 }
+                                    ]
+                                },
+                                {
+                                    id: 2,
+                                    name: 'Хирургия',
+                                    services: [
+                                        { id: 3, name: 'Удаление зуба', price: 3000 },
+                                        { id: 4, name: 'Имплантация', price: 25000 }
+                                    ]
+                                }
+                            ];
+                        }
+                        
+                        function loadAppointments() {
+                            // Загрузка из Firebase
+                        }
+                        
+                        function loadUserAppointments() {
+                            if (user.value.id) {
+                                userAppointments.value = appointments.value.filter(a => a.userId === user.value.id);
+                            }
+                        }
+                        
+                        // Telegram Login
+                        function loadTelegramWidget() {
+                            const container = document.getElementById('telegram-login-container');
+                            if (!container) return;
+                            
+                            if (window.loadTelegramWidget) {
+                                window.loadTelegramWidget(BOT_USERNAME || 'vika_dental_bot', 'telegram-login-container');
+                            }
+                        }
+                        
+                        function handleTelegramAuth(userData) {
+                            user.value = {
+                                id: userData.id,
+                                first_name: userData.first_name,
+                                last_name: userData.last_name || '',
+                                username: userData.username || '',
+                                photo_url: userData.photo_url || '',
+                                is_guest: false
+                            };
+                            
+                            isAdmin.value = ADMIN_IDS.includes(userData.id);
+                            
+                            localStorage.setItem('vika_user', JSON.stringify(user.value));
+                            loadUserAppointments();
+                        }
+                        
+                        // Инициализация
+                        onMounted(() => {
+                            window.app = { handleTelegramAuth };
+                            
+                            // Загрузка пользователя
+                            const savedUser = localStorage.getItem('vika_user');
+                            if (savedUser) {
+                                try {
+                                    user.value = JSON.parse(savedUser);
+                                    isAdmin.value = ADMIN_IDS.includes(user.value.id);
+                                } catch (e) {}
+                            }
+                            
+                            // Загрузка данных
+                            loadDoctors();
+                            loadPriceList();
+                            loadAppointments();
+                            loadUserAppointments();
+                            
+                            // Инициализация Telegram
+                            if (window.Telegram?.WebApp) {
+                                window.Telegram.WebApp.ready();
+                                window.Telegram.WebApp.expand();
+                            }
+                            
+                            // Виджет входа
+                            if (user.value.is_guest) {
+                                setTimeout(loadTelegramWidget, 500);
+                            }
+                            
+                            // Watch для обновления записей
+                            watch(appointments, loadUserAppointments, { deep: true });
+                        });
+                        
+                        return {
+                            tab,
+                            adminTab,
+                            user,
+                            isAdmin,
+                            doctors,
+                            priceCategories,
+                            appointments,
+                            userAppointments,
+                            menuItems,
+                            tgChannelLink,
+                            currentDate,
+                            currentMonthName,
+                            currentYear,
+                            calendarDays,
+                            selectedDate,
+                            selectedTime,
+                            selectedDoctor,
+                            timeSlots,
+                            editingDoctor,
+                            doctorForm,
+                            handleImageError,
+                            prevMonth,
+                            nextMonth,
+                            selectDate,
+                            selectTime,
+                            formatDate,
+                            bookAppointment,
+                            cancelAppointment,
+                            rescheduleAppointment,
+                            addCategory,
+                            deleteCategory,
+                            addService,
+                            deleteService,
+                            savePriceList,
+                            addDoctor,
+                            editDoctor,
+                            deleteDoctor,
+                            saveDoctor,
+                            handleDoctorPhoto
+                        };
+                    }
+                });
+                
+                appVue.mount('#app');
+            }
+        }
+        
+        // Глобальные функции
+        window.onTelegramLogin = function(user) {
+            if (window.app?.handleTelegramAuth) {
+                window.app.handleTelegramAuth(user);
+            } else {
+                localStorage.setItem('telegram_pending_user', JSON.stringify(user));
+            }
+        };
+        
+        window.loadTelegramWidget = function(botUsername, containerId) {
+            return new Promise((resolve, reject) => {
+                const container = document.getElementById(containerId);
+                if (!container) return reject('Контейнер не найден');
+                
+                container.innerHTML = '';
+                
+                const script = document.createElement('script');
+                script.async = true;
+                script.src = 'https://telegram.org/js/telegram-widget.js?22';
+                script.setAttribute('data-telegram-login', botUsername);
+                script.setAttribute('data-size', 'large');
+                script.setAttribute('data-radius', '10');
+                script.setAttribute('data-onauth', 'onTelegramLogin(user)');
+                script.setAttribute('data-request-access', 'write');
+                
+                script.onload = () => resolve('script');
+                script.onerror = () => {
+                    container.innerHTML = '';
+                    const iframe = document.createElement('iframe');
+                    iframe.src = `https://oauth.telegram.org/embed/${botUsername}?origin=${encodeURIComponent(window.location.origin)}&size=large&request_access=write`;
+                    iframe.width = '100%';
+                    iframe.height = '65';
+                    iframe.style.border = 'none';
+                    iframe.style.overflow = 'hidden';
+                    iframe.style.borderRadius = '8px';
+                    container.appendChild(iframe);
+                    resolve('iframe');
+                };
+                
+                container.appendChild(script);
+            });
+        };
+        
+        init();
+    </script>
+</body>
+</html>
